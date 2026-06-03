@@ -1,0 +1,22 @@
+{
+  "name": "ps-skills",
+  "description": "Three agentic Claude Code skills: grill-me, owasp-audit, and test-author-skeptic.",
+  "version": "0.1.0",
+  "author": {
+    "name": "Peter Stanchev",
+    "url": "https://github.com/PeterStanchev"
+  },
+  "homepage": "https://github.com/PeterStanchev/ps-claude-skills",
+  "repository": "https://github.com/PeterStanchev/ps-claude-skills",
+  "license": "MIT",
+  "keywords": [
+    "skills",
+    "testing",
+    "mutation-testing",
+    "security",
+    "owasp",
+    "planning",
+    "multi-agent",
+    "workflow"
+  ]
+}

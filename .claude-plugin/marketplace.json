@@ -1,0 +1,22 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "ps-claude-skills",
+  "description": "Peter Stanchev's Claude Code skills: relentless plan-grilling, multi-agent OWASP audits, and mutation-verified test authoring.",
+  "owner": {
+    "name": "Peter Stanchev",
+    "url": "https://github.com/PeterStanchev"
+  },
+  "plugins": [
+    {
+      "name": "ps-skills",
+      "description": "Three agentic skills: grill-me (interrogate a plan), owasp-audit (multi-agent security audit), test-author-skeptic (mutation-verified test writing).",
+      "version": "0.1.0",
+      "source": "./",
+      "author": {
+        "name": "Peter Stanchev",
+        "url": "https://github.com/PeterStanchev"
+      },
+      "category": "development"
+    }
+  ]
+}

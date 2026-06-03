@@ -1,0 +1,9 @@
+# OS / editor junk
+.DS_Store
+Thumbs.db
+*.local
+.idea/
+.vscode/
+
+# test-author-skeptic transient run checkpoints (if the skill is ever run in this repo)
+.test-author-skeptic/partial/
