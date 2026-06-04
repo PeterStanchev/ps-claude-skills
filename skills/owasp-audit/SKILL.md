@@ -1,7 +1,7 @@
 ---
 name: owasp-audit
-description: Run a multi-agent OWASP Top 10 security audit on the current codebase. Pass `opus` (default) or `sonnet` to choose the model for every finder/verifier agent. Launches a background Workflow with one finder per OWASP category (latest edition + retained legacy categories), adversarially verifies each finding with a skeptic agent, then synthesizes survivors by severity with file:line refs. Use when the user asks for a security audit, OWASP review, vulnerability sweep, pen-test-style code review, or to "audit using agents" (optionally naming opus or sonnet).
-argument-hint: [opus|sonnet]
+description: Run a multi-agent OWASP Top 10 security audit on the current codebase. Pass `opus` (default) or `sonnet` to choose the model for every finder/verifier agent; optionally scope to a `<path>` or to branch changes only with `--diff`. Launches a background Workflow with one finder per OWASP category (latest edition + retained legacy categories), adversarially verifies each finding with a skeptic agent, then synthesizes survivors by severity with file:line refs and offers to write a SECURITY-AUDIT.md report. Use when the user asks for a security audit, OWASP review, vulnerability sweep, pen-test-style code review, or to "audit using agents" (optionally naming opus or sonnet).
+argument-hint: [opus|sonnet] [--diff | <path>]
 ---
 
 # OWASP multi-agent audit
@@ -21,6 +21,14 @@ The argument picks the model for **every** agent:
 Pass the choice into the Workflow as `args: { model: 'opus' | 'sonnet' }`; the script
 reads it into `MODEL` and stamps it on every `agent()`. State which model you picked
 when you launch.
+
+## Scope (optional argument)
+Default audits the whole repo. Narrow it when the repo is large or you only care about recent work:
+- `--diff` → audit only files changed on the current branch vs the main branch (PR-gating). Resolve
+  the changed-file list during recon and pass it into every finder's SCOPE.
+- `<path>` → audit only that directory/file subtree.
+
+State the scope when you launch; recon (step 1) and every finder's `focus` must respect it.
 
 ## Procedure
 
@@ -107,12 +115,22 @@ const VERDICT_SCHEMA = {
 
 // FILL: latest-edition categories + retained legacy passes. Point focus at real files.
 const CATEGORIES = [
-  { key: 'A01:2025', name: 'Broken Access Control', focus: `...` },
-  // A02 Security Misconfiguration, A03 Software Supply Chain Failures,
-  // A04 Cryptographic Failures, A05 Injection, A06 Insecure Design,
-  // A07 Authentication Failures, A08 Software or Data Integrity Failures,
-  // A09 Security Logging and Alerting Failures, A10 Mishandling of Exceptional Conditions,
-  // + dedicated SSRF pass, + dedicated dependency-CVE pass (when relevant).
+  // Latest-edition passes (re-verify names/order against the web check in step 2).
+  // Rewrite each `focus` to point at the REAL files found in recon; drop any that don't apply.
+  { key: 'A01:2025', name: 'Broken Access Control', focus: `authz on every route/handler, IDOR, missing ownership checks, SSRF now lives here — <files>` },
+  { key: 'A02:2025', name: 'Security Misconfiguration', focus: `CORS, security headers, debug flags, default creds, verbose errors — <files>` },
+  { key: 'A03:2025', name: 'Software Supply Chain Failures', focus: `manifest + lockfile, unpinned/abandoned deps, postinstall scripts — <files>` },
+  { key: 'A04:2025', name: 'Cryptographic Failures', focus: `secret handling, password hashing, TLS, token signing, randomness — <files>` },
+  { key: 'A05:2025', name: 'Injection', focus: `SQL/NoSQL, command, template, XSS sinks vs the query/render style — <files>` },
+  { key: 'A06:2025', name: 'Insecure Design', focus: `missing rate limits, weak workflows, trust-boundary gaps — <files>` },
+  { key: 'A07:2025', name: 'Authentication Failures', focus: `login, session, password reset, MFA, JWT validation — <files>` },
+  { key: 'A08:2025', name: 'Software or Data Integrity Failures', focus: `insecure deserialization, unsigned updates, CI/CD trust — <files>` },
+  { key: 'A09:2025', name: 'Security Logging & Alerting Failures', focus: `auth-event logging, secrets leaking into logs — <files>` },
+  { key: 'A10:2025', name: 'Mishandling of Exceptional Conditions', focus: `error paths leaking detail, fail-open defaults, swallowed exceptions — <files>` },
+  // Retained dedicated passes — keep any that map to real surface here (total may exceed 10):
+  { key: 'SECRETS', name: 'Hardcoded Secrets & Credentials', focus: `keys/tokens/passwords in source, config, committed history — <files>` },
+  { key: 'SSRF', name: 'Server-Side Request Forgery', focus: `user-influenced outbound fetch/HTTP calls — <files>` },
+  { key: 'DEP-CVE', name: 'Known-Vulnerable Dependencies', focus: `lockfile versions vs known CVEs; is the vulnerable path actually reached? — <files>` },
 ]
 
 const finderPrompt = (cat) => `${STACK}
@@ -171,12 +189,17 @@ return {
 ```
 
 ### 5. Synthesize when the workflow returns
+- **Dedupe across categories first.** The same root cause can surface in several passes (e.g.
+  one injection flagged under both A05 and A06). Merge by `file:line` + root cause, keeping the
+  highest adjustedSeverity, before ranking.
 - Group confirmed survivors by **adjustedSeverity** (critical → info), each with
   `file:line`, the exploit path, and the fix.
 - Report coverage so nothing reads as silently dropped: per-category raw vs confirmed
-  counts, and which areas came back clean.
+  counts, which areas came back clean, and the scope audited (whole repo / path / diff).
 - Note high-confidence **false positives** the skeptics killed (shows verify worked).
-- Offer to fix the top findings as a follow-up (default is a read-only audit).
+- **Offer to write `SECURITY-AUDIT.md`** (severity-grouped findings with `file:line`, exploit,
+  and fix) so the result persists beyond the chat — default audit stays read-only.
+- Offer to fix the top findings as a follow-up.
 
 ## Notes
 - Model is arg-driven (`MODEL` in the script). Default opus; `sonnet` for cheaper sweeps.

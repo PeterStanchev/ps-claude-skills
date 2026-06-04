@@ -22,8 +22,9 @@ Calls the **Workflow** tool — invoking the skill IS the multi-agent opt-in. Ne
   from a **copy-and-restore checkpoint**: any agent that mutates a source file copies it first
   (`<src>.bak`) and restores it after — parallel-safe (never `git stash`, which is global),
   and survives WIP in the file.
-- **Hybrid skeptic engine.** If a real mutation tool is configured (`mutmut`/`cosmic-ray` for
-  pytest, `Stryker` for JS/TS), the skeptic runs it scoped to the source file. Otherwise it
+- **Hybrid skeptic engine.** If a real mutation tool is configured the skeptic runs it scoped to
+  the source file — `mutmut`/`cosmic-ray` (pytest), `Stryker` (JS/TS), `PIT` (Java/JVM),
+  `cargo-mutants` (Rust), `gremlins` (Go), `Stryker.NET` (C#), `mutant` (Ruby). Otherwise it
   hand-mutates: flip `</<=`, negate a condition, `return null/0`, off-by-one, drop a side effect.
 - **Serialize per source file, parallel across files.** Two agents mutating the same file
   collide; targets are grouped by source file, sequential within a group, groups run parallel.
@@ -45,7 +46,8 @@ Calls the **Workflow** tool — invoking the skill IS the multi-agent opt-in. Ne
 ### Phase 0 — Detect, set up, scope (INLINE, before the Workflow)
 Workflow agents run in the background and can't prompt the user, so all interaction happens here.
 1. **Explore + detect**: identify language(s) and whether a test stack exists (config, test dirs,
-   a runner in the manifest). Detect any mutation tool (`mutmut`/`cosmic-ray`/`Stryker`).
+   a runner in the manifest). Detect any configured mutation tool for the language (`mutmut`/`cosmic-ray` py,
+   `Stryker` JS/TS, `PIT` JVM, `cargo-mutants` Rust, `gremlins` Go, `Stryker.NET` C#, `mutant` Ruby).
    **Hard-exclude `node_modules/`, `.venv/`, `dist/`, `build/`, generated, and vendored dirs**
    from all discovery globs — a dependency's own tests (e.g. `node_modules/zod/**/*.test.ts`)
    are not your targets and will flood results.
