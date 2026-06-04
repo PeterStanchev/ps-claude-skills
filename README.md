@@ -6,11 +6,12 @@ A small collection of [Claude Code](https://claude.com/claude-code) skills by Pe
 |-------|--------|--------------|
 | **grill-me** | `/grill-me` | Interviews you relentlessly about a plan or design — one question at a time — until every decision branch is resolved. |
 | **owasp-audit** | `/owasp-audit [opus\|sonnet]` | Multi-agent OWASP Top 10 security audit: one finder per category, an adversarial skeptic that tries to refute each finding, then a severity-ranked synthesis. |
+| **perf-audit** | `/perf-audit [opus\|sonnet]` | Multi-agent performance audit: one finder per perf category (N+1, slow queries, complexity, allocs, blocking I/O, caching, network, frontend, leaks), a skeptic that kills micro-opt and cold-path noise, then an impact-ranked synthesis. |
 | **test-author-skeptic** | `/test-author-skeptic [sonnet\|opus] [--auto] [--recheck-all]` | Mutation-verified test authoring: an author writes/augments tests, an independent skeptic mutates the source to prove the tests actually catch bugs, and a strengthen loop closes the gaps. |
 
 ## What's the common thread?
 
-All three lean on the **author + critical skeptic** pattern: one agent produces work, a second *independent* agent adversarially tries to tear it down, and only what survives is kept. `owasp-audit` and `test-author-skeptic` fan this out across many agents via the Claude Code **Workflow** tool; `grill-me` turns the skeptic on *you* to harden a plan before any code is written.
+All four lean on the **author + critical skeptic** pattern: one agent produces work, a second *independent* agent adversarially tries to tear it down, and only what survives is kept. `owasp-audit`, `perf-audit`, and `test-author-skeptic` fan this out across many agents via the Claude Code **Workflow** tool; `grill-me` turns the skeptic on *you* to harden a plan before any code is written.
 
 ## Install
 
@@ -21,7 +22,7 @@ All three lean on the **author + critical skeptic** pattern: one agent produces 
 /plugin install ps-skills@ps-claude-skills
 ```
 
-Restart the session (or reload) and the three skills appear in the skill list.
+Restart the session (or reload) and the four skills appear in the skill list.
 
 ### Option B — Plain copy (no plugin machinery)
 
@@ -39,9 +40,10 @@ Then restart the session. Skills are just `SKILL.md` files — no build step.
 
 ## Requirements & notes
 
-- **Claude Code** with the Skill system. `owasp-audit` and `test-author-skeptic` also use the **Workflow** tool (multi-agent orchestration) and run in the background.
-- Both multi-agent skills need a **git repository** to run against.
+- **Claude Code** with the Skill system. `owasp-audit`, `perf-audit`, and `test-author-skeptic` also use the **Workflow** tool (multi-agent orchestration) and run in the background.
+- These multi-agent skills need a **git repository** to run against.
 - **`owasp-audit`** is read-only (it audits, it doesn't change code). Pass `opus` (default) or `sonnet` to pick the model for every agent. Optionally scope to a `<path>` or `--diff` (branch changes only); on completion it offers to write `SECURITY-AUDIT.md`.
+- **`perf-audit`** is read-only. Pass `opus` (default) or `sonnet`; optionally scope to a `<path>` or `--diff`. Its skeptic discards micro-optimizations and cold-path findings, and the synthesis points at a benchmark/profiler to confirm each win — perf is empirical. Offers to write `PERF-AUDIT.md`.
 - **`test-author-skeptic`** writes files and runs your test suite. It defaults to **sonnet** for cost; pass `opus` for deeper reasoning. It is **token-heavy** — mutation testing reruns the suite once per mutant, so cost scales with (branches × targets × rounds). Keep target lists tight and prefer a real mutation tool (`mutmut`/`cosmic-ray`/`Stryker`) at scale. It is resumable: same-session via the Workflow run id, cross-session via a `.test-author-skeptic/verified.json` ledger.
 
 ## License
