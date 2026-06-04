@@ -92,6 +92,13 @@ where `stackDesc`/`runContext` are strings (from Phase 0 step 2), `commands = { 
 `targets[i] = { key, source, test, mode, cmd }` — `cmd` is the pinned per-target green command (Phase 0 step 6).
 Keep the printed `runId` + `scriptPath` — they enable same-session resume (see *Resuming an interrupted run*).
 
+> **Reliability — embed data, don't trust the `args` channel.** The `args` object can reach the script
+> empty (symptom: a 0-target / 0-agent run that returns in milliseconds). Prefer to EMBED `targets`,
+> `stackDesc`, `runContext`, and `commands` as literals directly in the script body (replace the
+> `args && …` reads at the top with the actual values) and launch via `scriptPath`. This is also what
+> makes the Write/Edit-then-rerun iteration loop work. The fallback `<fill>` placeholders below are only
+> for the rare case the channel works.
+
 ```js
 export const meta = {
   name: 'test-author-skeptic',
@@ -114,6 +121,11 @@ RUN CONTEXT: ${(args && args.runContext) || '<fill: local venv / global interpre
 Mutation tool (if configured): ${CMD.mutationTool || '(none — hand-mutate)'}
 Your task gives a PER-TARGET test command. Run EXACTLY that (it is the pinned green baseline from
 Phase 0); do not broaden it to the whole suite — unrelated env-dependent failures would pollute your verdict.
+
+OUTPUT CONTRACT (non-negotiable): you MUST finish by calling the StructuredOutput tool with your result.
+If you are running low on budget, STOP working immediately and emit what you have so far. Ending a turn
+without StructuredOutput loses the entire target — and for a skeptic/reverify mid-mutation it can leave a
+source file un-restored. Budget your run so the final emit always happens.
 
 SAFETY (main working tree, shared with other agents):
 - Only ever touch the ONE source/test file named in your task.
@@ -206,9 +218,13 @@ ADVERSARIAL job: prove these tests would FAIL to catch real bugs. Stay independe
 code as written, not the author's claims.
 METHOD (mutation testing):
 - If a mutation tool is configured, run it scoped to ${t.source} and parse surviving mutants (engine=tool).
-- Else hand-mutate (engine=hand): for each meaningful branch in ${t.source}, apply ONE mutation
-  (flip </<=, negate a condition, return null/0, off-by-one, drop a side effect), rerun ${t.cmd},
-  REVERT (copy-restore per SAFETY). Mutation makes a test fail => killed; suite still green => SURVIVED.
+- Else hand-mutate (engine=hand): pick AT MOST ~8-12 of the HIGHEST-VALUE mutations (boundaries/thresholds,
+  flip </<=, negate a condition, return null/0, off-by-one, swapped class/string, drop a side effect) — do
+  NOT exhaustively mutate every line. When each test run is slow (browser/jsdom ~2-3s startup, compiled
+  Rust/Go/JVM, or DB/integration suites), stay at the LOW end of that range: N slow mutant×rerun cycles plus
+  verbose reasoning is exactly what blows the agent budget and aborts the run before StructuredOutput. For
+  each: apply ONE mutation, rerun ${t.cmd}, REVERT (copy-restore per SAFETY). Test fails => killed; suite
+  still green => SURVIVED.
 - Flag weak tests (tautology / mock-only / asserts-nothing / flaky / over-fit); set preExisting by
   checking git show HEAD:${a.testFile}.
 - Mark a survivor suspectedEquivalent=true only if no test could ever kill it (semantically identical).
@@ -296,7 +312,10 @@ return { model: MODEL, avgScore: avg, remainingMutants, results, preExistingWeak
   suspected-equivalent ones as "can't be killed", not "we failed". Note targets left red (`passing=false`).
 - **Update the ledger**: for each target that ended with zero remaining (or only suspected-equivalent)
   mutants, write its (test,source) sha256 + score + date into `.test-author-skeptic/verified.json`.
-  Inline only. Commit the ledger so it is shared (say so; offer to gitignore instead if preferred).
+  Inline only. **Always write it, even when `.test-author-skeptic/` is gitignored** — it still powers
+  same-machine skip-on-rerun; do NOT skip this step just because it won't be committed. Then say whether
+  it's committed or gitignored, and offer to flip that. (Also record manually-verified targets — e.g. a
+  skeptic that aborted but whose tests you teeth-checked by hand — with `method: "manual-teeth-check"`.)
   Then delete `.test-author-skeptic/partial/` — its entries are now folded into the ledger.
 - **Weak tests**: ours were fixed in the loop. List **pre-existing** weak tests with suggested fixes,
   then — unless the user already declined existing-test edits — ask via AskUserQuestion whether to fix
@@ -327,6 +346,15 @@ Long runs die mid-way (usage cutoff, kill, crash). Two recovery layers:
   targets × rounds). At scale, prefer a real mutation tool (one batched run beats N LLM reruns), keep
   the target list tight, and default sonnet over opus.
 - The copy-restore checkpoint + serialize-per-file are what make main-tree parallelism safe — keep both.
+- **Slow test runners blow the skeptic budget.** Browser/jsdom (~2-3s/start), compiled (Rust/Go/JVM), and
+  DB/integration suites make every mutant×rerun cycle expensive. Cap the skeptic's mutation count (see its
+  prompt) so the run finishes and emits StructuredOutput; an aborted skeptic loses the target *and* can
+  leave a source mutated. The author→green phase is robust; it's the skeptic loop that needs the cap.
+- **Recovery after a dead skeptic.** If a run aborts mid-mutation you may find sources left mutated with
+  orphan `<src>.bak` files. Before relaunching: restore them — `git checkout -- <sources>` (clean sources)
+  or `mv <src>.bak <src>` — delete the bak, confirm the baseline is green. The authored tests usually
+  survive (already written + run green); re-verify them (rerun the skeptic, or teeth-check by hand) rather
+  than rewriting. Then ledger them with the method used.
 - Never write literal `Date.now()` / `Math.random()` / `new Date()` in the script text (even inside
   prompt strings) — the Workflow validator rejects it. Stamp the ledger date inline after the run.
 ```
