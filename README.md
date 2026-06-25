@@ -1,6 +1,6 @@
 # ps-claude-skills
 
-A small collection of [Claude Code](https://claude.com/claude-code) skills by Peter Stanchev. Each one packages a repeatable, agentic workflow as a single `SKILL.md` that Claude can invoke on demand.
+A small collection of [Claude Code](https://claude.com/claude-code) skills by Peter Stanchev. Most package a repeatable, agentic workflow as a single `SKILL.md` that Claude can invoke on demand; two encode a reference standard.
 
 | Skill | Invoke | What it does |
 |-------|--------|--------------|
@@ -8,10 +8,14 @@ A small collection of [Claude Code](https://claude.com/claude-code) skills by Pe
 | **owasp-audit** | `/owasp-audit [opus\|sonnet]` | Multi-agent OWASP Top 10 security audit: one finder per category, an adversarial skeptic that tries to refute each finding, then a severity-ranked synthesis. |
 | **perf-audit** | `/perf-audit [opus\|sonnet]` | Multi-agent performance audit: one finder per perf category (N+1, slow queries, complexity, allocs, blocking I/O, caching, network, frontend, leaks), a skeptic that kills micro-opt and cold-path noise, then an impact-ranked synthesis. |
 | **test-author-skeptic** | `/test-author-skeptic [sonnet\|opus] [--auto] [--recheck-all]` | Mutation-verified test authoring: an author writes/augments tests, an independent skeptic mutates the source to prove the tests actually catch bugs, and a strengthen loop closes the gaps. |
+| **ml-eval** | `/ml-eval` | Pick and compute the right ML/LLM/RAG evaluation metric — regression, classification, text-generation, LLM-judge — and validate automatic scores against human judgment. |
+| **fastapi-skeleton** | `/fastapi-skeleton` | Scaffold or standardize a FastAPI service on the official "Bigger Applications" layout — routers, dependencies, config, health — with a GPU/ML model-serving addendum. |
 
 ## What's the common thread?
 
-All four lean on the **author + critical skeptic** pattern: one agent produces work, a second *independent* agent adversarially tries to tear it down, and only what survives is kept. `owasp-audit`, `perf-audit`, and `test-author-skeptic` fan this out across many agents via the Claude Code **Workflow** tool; `grill-me` turns the skeptic on *you* to harden a plan before any code is written.
+Four of the skills lean on the **author + critical skeptic** pattern: one agent produces work, a second *independent* agent adversarially tries to tear it down, and only what survives is kept. `owasp-audit`, `perf-audit`, and `test-author-skeptic` fan this out across many agents via the Claude Code **Workflow** tool; `grill-me` turns the skeptic on *you* to harden a plan before any code is written.
+
+`ml-eval` and `fastapi-skeleton` are a different kind — **reference skills** that encode a recognized standard (ML evaluation metrics; the official FastAPI project layout) for Claude to apply on demand.
 
 ## Install
 

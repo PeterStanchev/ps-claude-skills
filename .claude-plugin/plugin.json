@@ -1,7 +1,7 @@
 {
   "name": "ps-skills",
-  "description": "Four agentic Claude Code skills: grill-me, owasp-audit, perf-audit, and test-author-skeptic.",
-  "version": "0.3.0",
+  "description": "Six Claude Code skills: agentic audits (owasp-audit, perf-audit, test-author-skeptic), plan-grilling (grill-me), and reference standards (ml-eval, fastapi-skeleton).",
+  "version": "0.4.0",
   "author": {
     "name": "Peter Stanchev",
     "url": "https://github.com/PeterStanchev"
@@ -18,6 +18,9 @@
     "performance",
     "planning",
     "multi-agent",
-    "workflow"
+    "workflow",
+    "fastapi",
+    "evaluation",
+    "metrics"
   ]
 }
