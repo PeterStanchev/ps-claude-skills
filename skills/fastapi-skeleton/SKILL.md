@@ -33,7 +33,7 @@ app/
 - **Middleware / logging**: `CORSMiddleware` (origins from config) + a request-id middleware; `logging.config.dictConfig` once; `log = logging.getLogger(__name__)` per module.
 - **Lifespan**: load heavy resources (models, DB pools) in a `lifespan` handler, not at import time.
 - **Health**: `GET /health` (liveness) + a deeper readiness check wired to the orchestrator probe.
-- **Run**: `gunicorn -k uvicorn.workers.UvicornWorker app.main:app`, Dockerized, non-root.
+- **Run**: `fastapi run app/main.py --workers N` (or `uvicorn app.main:app --workers N`), Dockerized, non-root. Under Kubernetes/an orchestrator: **one process per container** — replicas come from the orchestrator, not `--workers`. (`gunicorn -k uvicorn.workers.UvicornWorker` is the legacy pattern — uvicorn deprecated its built-in worker class and the official docs dropped gunicorn; keep it only where a stack already standardizes on it.)
 
 ## Model-serving / streaming addendum
 - Load each model **once**; cache keyed by `(model_name, device, compute_type)` behind a lock. Long jobs: async job store + `progress_callback` (stage/percent/ETA). SSE (`StreamingResponse`) for token streaming with heartbeats + disconnect handling. Keep GPU/CPU work off the event loop.

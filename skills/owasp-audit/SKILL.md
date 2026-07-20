@@ -1,7 +1,7 @@
 ---
 name: owasp-audit
-description: Run a multi-agent OWASP Top 10 security audit on the current codebase. Pass `opus` (default) or `sonnet` to choose the model for every finder/verifier agent; optionally scope to a `<path>` or to branch changes only with `--diff`. Launches a background Workflow with one finder per OWASP category (latest edition + retained legacy categories), adversarially verifies each finding with a skeptic agent, then synthesizes survivors by severity with file:line refs and offers to write a SECURITY-AUDIT.md report. Use when the user asks for a security audit, OWASP review, vulnerability sweep, pen-test-style code review, or to "audit using agents" (optionally naming opus or sonnet).
-argument-hint: [opus|sonnet] [--diff | <path>]
+description: Run a multi-agent OWASP Top 10 security audit on the current codebase. Optionally pass a model (`sonnet`, `opus`, `haiku`, or `fable`) to pin every finder/verifier agent — omitted, the invoking agent picks one to fit repo size and audit criticality; optionally scope to a `<path>` or to branch changes only with `--diff`. Launches a background Workflow with one finder per OWASP category (latest edition + retained legacy categories), adversarially verifies each finding with a skeptic agent, then synthesizes survivors by severity with file:line refs and offers to write a SECURITY-AUDIT.md report. Use when the user asks for a security audit, OWASP review, vulnerability sweep, pen-test-style code review, or to "audit using agents" (optionally naming a model).
+argument-hint: [sonnet|opus|haiku|fable] [--diff | <path>]
 ---
 
 # OWASP multi-agent audit
@@ -13,14 +13,21 @@ category finishes. You synthesize survivors by severity.
 This skill calls the **Workflow** tool — invoking the skill IS the multi-agent opt-in.
 Needs a git repo. Audit agents are read-only (no worktree isolation).
 
-## Model selection (the invocation argument)
-The argument picks the model for **every** agent:
-- `sonnet` → all finders + skeptics run Sonnet (cheaper/faster, broad sweeps).
-- `opus`, empty, or anything else → Opus (default, deepest reasoning).
+## Model selection (optional argument)
+An explicit argument (`sonnet` | `opus` | `haiku` | `fable`) pins that model on **every** agent.
 
-Pass the choice into the Workflow as `args: { model: 'opus' | 'sonnet' }`; the script
-reads it into `MODEL` and stamps it on every `agent()`. State which model you picked
-when you launch.
+No argument → **you decide, deliberately, per situation.** Cost scales with the fan-out
+(~10–14 finders + one verifier per finding), so weigh repo size, audit criticality, and
+what the session model costs:
+- Broad sweep, large repo, routine gate → `sonnet`.
+- Deep or critical audit (auth-heavy surface, pre-release) → `opus` or `fable`.
+- **Never inherit the session model silently.** Omitting `model` on `agent()` inherits it —
+  on a fable session that multiplies the most expensive model across the whole fan-out.
+  Inherit only when that depth is the point, and say so.
+
+Pass the choice as `args: { model: 'sonnet' | 'opus' | 'haiku' | 'fable' | null }` —
+`null`/absent means agents inherit the session model. State the model (or "inherit") and
+the rough agent count when you launch.
 
 ## Scope (optional argument)
 Default audits the whole repo. Narrow it when the repo is large or you only care about recent work:
@@ -60,7 +67,7 @@ dedicated dependency-CVE pass separate from the broad supply-chain pass.
 ### 4. Author & launch the Workflow
 Adapt the template: fill `STACK` from step 1, `CATEGORIES` from steps 2–3 (rewrite each
 `focus` to point at the real files you found). Launch in **background**, passing the
-chosen model: `Workflow({ script: <filled>, args: { model: 'opus' } })`.
+chosen model (or null to inherit): `Workflow({ script: <filled>, args: { model: 'sonnet' } })`.
 
 ```js
 export const meta = {
@@ -72,8 +79,11 @@ export const meta = {
   ],
 }
 
-// Model from the invocation arg: 'sonnet' -> sonnet, else opus (default).
-const MODEL = args && typeof args.model === 'string' && args.model.toLowerCase() === 'sonnet' ? 'sonnet' : 'opus'
+// Model: an explicit arg pins every agent; null/absent -> agents inherit the session model.
+const ALLOWED_MODELS = ['sonnet', 'opus', 'haiku', 'fable']
+const MODEL = args && typeof args.model === 'string' && ALLOWED_MODELS.includes(args.model.toLowerCase())
+  ? args.model.toLowerCase() : null
+const MOPT = MODEL ? { model: MODEL } : {}
 
 // FILL from recon: stack facts + explicit threat model. Every agent reads this.
 const STACK = `STACK & THREAT MODEL
@@ -130,7 +140,7 @@ const CATEGORIES = [
   // Retained dedicated passes — keep any that map to real surface here (total may exceed 10):
   { key: 'SECRETS', name: 'Hardcoded Secrets & Credentials', focus: `keys/tokens/passwords in source, config, committed history — <files>` },
   { key: 'SSRF', name: 'Server-Side Request Forgery', focus: `user-influenced outbound fetch/HTTP calls — <files>` },
-  { key: 'DEP-CVE', name: 'Known-Vulnerable Dependencies', focus: `lockfile versions vs known CVEs; is the vulnerable path actually reached? — <files>` },
+  { key: 'DEP-CVE', name: 'Known-Vulnerable Dependencies', focus: `run a real scanner if installed (pip-audit / npm audit / osv-scanner) and triage its output; else reason from the lockfile. Is the vulnerable path actually reached? — <files>` },
 ]
 
 const finderPrompt = (cat) => `${STACK}
@@ -161,16 +171,16 @@ Claimed exploit: ${f.exploit || '(none)'}
 Proposed fix: ${f.fix}`
 
 phase('Find')
-log(`OWASP audit: ${CATEGORIES.length} category passes, model=${MODEL} (finders -> skeptics)`)
+log(`OWASP audit: ${CATEGORIES.length} category passes, model=${MODEL || 'inherit'} (finders -> skeptics)`)
 
 const results = await pipeline(
   CATEGORIES,
-  (cat) => agent(finderPrompt(cat), { label: `find:${cat.key}`, phase: 'Find', model: MODEL, schema: FINDINGS_SCHEMA }),
+  (cat) => agent(finderPrompt(cat), { label: `find:${cat.key}`, phase: 'Find', schema: FINDINGS_SCHEMA, ...MOPT }),
   (res, cat) => {
     const findings = res && Array.isArray(res.findings) ? res.findings : []
     if (!findings.length) return { key: cat.key, name: cat.name, findingsCount: 0, verified: [] }
     return parallel(findings.map((f) => () =>
-      agent(verifyPrompt(cat, f), { label: `verify:${cat.key}`, phase: 'Verify', model: MODEL, schema: VERDICT_SCHEMA })
+      agent(verifyPrompt(cat, f), { label: `verify:${cat.key}`, phase: 'Verify', schema: VERDICT_SCHEMA, ...MOPT })
         .then((v) => ({ ...f, category: cat.key, categoryName: cat.name, verdict: v }))
     )).then((arr) => ({ key: cat.key, name: cat.name, findingsCount: findings.length, verified: arr.filter(Boolean) }))
   }
@@ -179,9 +189,9 @@ const results = await pipeline(
 const clean = results.filter(Boolean)
 const all = clean.flatMap((r) => r.verified)
 const real = all.filter((f) => f.verdict && f.verdict.isReal && f.verdict.adjustedSeverity !== 'false-positive')
-log(`Done: ${all.length} raw findings, ${real.length} survived verification (model=${MODEL})`)
+log(`Done: ${all.length} raw findings, ${real.length} survived verification (model=${MODEL || 'inherit'})`)
 return {
-  model: MODEL,
+  model: MODEL || 'inherit',
   categories: clean.map((r) => ({ key: r.key, name: r.name, raw: r.findingsCount,
     confirmed: r.verified.filter((f) => f.verdict && f.verdict.isReal).length })),
   real, all,
@@ -202,7 +212,10 @@ return {
 - Offer to fix the top findings as a follow-up.
 
 ## Notes
-- Model is arg-driven (`MODEL` in the script). Default opus; `sonnet` for cheaper sweeps.
+- Model is arg-driven (`MODEL` in the script); no arg → you choose per situation (see
+  Model selection). `null` inherits the session model — deliberate choice only.
+- Optionally stamp `effort` per role via `agent()` opts (e.g. verifiers `'high'`) when
+  the chosen model supports it.
 - Scale to the ask: quick check → fewer finders, single verify. "Thorough/comprehensive"
   → add a 3-vote adversarial panel per finding and a completeness-critic final pass.
 - Never write literal `Date.now()` / `Math.random()` / `new Date()` in the script text

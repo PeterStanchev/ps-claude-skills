@@ -1,7 +1,7 @@
 ---
 name: test-author-skeptic
-description: Multi-agent test authoring with adversarial mutation verification. Phase 0 (inline) detects the language + test stack, sets one up if missing (recommends/asks), reads the verified-test ledger, and proposes targets. Then a background Workflow runs two roles per target — an author writes/augments tests and runs them green, then an INDEPENDENT skeptic mutation-tests them (a real tool like mutmut/cosmic-ray/Stryker if present, else LLM hand-mutation) to prove each test actually catches bugs; a strengthen loop closes surviving mutants until clean, no-progress, or a round cap. Fixes weak tests it wrote, flags pre-existing ones (offers to fix on confirm). Caches verified (test,source) pairs by content hash to skip unchanged work. Pass `sonnet` (default) or `opus`; `--auto` runs hands-off; `--recheck-all` ignores the ledger. Use when asked to write tests with agents, harden or strengthen a test suite, set up a test framework, find coverage gaps via mutation testing, or "test using agents".
-argument-hint: [sonnet|opus] [--auto] [--recheck-all]
+description: Multi-agent test authoring with adversarial mutation verification. Phase 0 (inline) detects the language + test stack, sets one up if missing (recommends/asks), reads the verified-test ledger, and proposes targets. Then a background Workflow runs two roles per target — an author writes/augments tests and runs them green, then an INDEPENDENT skeptic mutation-tests them (a real tool like mutmut/cosmic-ray/Stryker if present, else LLM hand-mutation) to prove each test actually catches bugs; a strengthen loop closes surviving mutants until clean, no-progress, or a round cap. Fixes weak tests it wrote, flags pre-existing ones (offers to fix on confirm). Caches verified (test,source) pairs by content hash to skip unchanged work. Pass a model to pin every agent (`sonnet` recommended for cost, or `opus`/`haiku`/`fable`) — omitted, the invoking agent picks one to fit the job; `--auto` runs hands-off; `--recheck-all` ignores the ledger. Use when asked to write tests with agents, harden or strengthen a test suite, set up a test framework, find coverage gaps via mutation testing, or "test using agents".
+argument-hint: [sonnet|opus|haiku|fable] [--auto] [--recheck-all]
 ---
 
 # Test author + skeptic (multi-agent, mutation-verified)
@@ -34,8 +34,12 @@ Calls the **Workflow** tool — invoking the skill IS the multi-agent opt-in. Ne
   Read/written **inline** (never inside parallel agents) to avoid concurrent-write races.
 
 ## Invocation arguments
-- `sonnet` (default) / `opus` — model for every agent. Sonnet is the default for cost; pass `opus`
-  only for gnarly logic where the skeptic's reasoning needs the extra depth.
+- `sonnet` | `opus` | `haiku` | `fable` — pins the model for every agent. No arg → **you decide
+  per situation, and recommend `sonnet`**: the skeptic reruns the suite once per mutant, so cost
+  scales with (branches × targets × rounds) and an expensive model multiplies fast. `opus`/`fable`
+  only for gnarly logic where the skeptic's reasoning needs the extra depth. Passing `null` in
+  `args` makes agents inherit the session model — deliberate choice only (a fable session inherits
+  fable into every mutant cycle); state the model (or "inherit") when you launch.
 - `--auto` — hands-off: auto-discover targets, auto-pick + set up the recommended stack for
   the language, audit existing tests but **flag-only**, **never auto-edit pre-existing tests**
   (hard trust boundary, even in `--auto`), respect the ledger.
@@ -110,7 +114,11 @@ export const meta = {
   ],
 }
 
-const MODEL = args && typeof args.model === 'string' && args.model.toLowerCase() === 'opus' ? 'opus' : 'sonnet'
+// Model: an explicit value pins every agent; null/absent -> agents inherit the session model.
+const ALLOWED_MODELS = ['sonnet', 'opus', 'haiku', 'fable']
+const MODEL = args && typeof args.model === 'string' && ALLOWED_MODELS.includes(args.model.toLowerCase())
+  ? args.model.toLowerCase() : null
+const MOPT = MODEL ? { model: MODEL } : {}
 const MAX_ROUNDS = args && Number.isInteger(args.maxRounds) ? args.maxRounds : 3
 const TARGETS = (args && Array.isArray(args.targets)) ? args.targets : []
 const CMD = (args && args.commands) || {}
@@ -263,13 +271,13 @@ for (const t of TARGETS) { (groupsMap[t.source] = groupsMap[t.source] || []).pus
 const GROUPS = Object.keys(groupsMap).map((src) => ({ source: src, targets: groupsMap[src] }))
 
 phase('Author')
-log(`Test build: ${TARGETS.length} targets in ${GROUPS.length} file-groups, model=${MODEL}, cap=${MAX_ROUNDS} rounds`)
+log(`Test build: ${TARGETS.length} targets in ${GROUPS.length} file-groups, model=${MODEL || 'inherit'}, cap=${MAX_ROUNDS} rounds`)
 
 async function processTarget(t) {
-  const a = await agent(authorPrompt(t), { label: `author:${t.key}`, phase: 'Author', model: MODEL, schema: AUTHOR_SCHEMA })
+  const a = await agent(authorPrompt(t), { label: `author:${t.key}`, phase: 'Author', schema: AUTHOR_SCHEMA, ...MOPT })
   if (!a || !a.passing) return { key: t.key, source: t.source, authored: a, skeptic: null, rounds: [], remaining: [], weakTests: [], note: 'author failed/red' }
 
-  const s = await agent(skepticPrompt(t, a), { label: `skeptic:${t.key}`, phase: 'Sabotage', model: MODEL, schema: SKEPTIC_SCHEMA })
+  const s = await agent(skepticPrompt(t, a), { label: `skeptic:${t.key}`, phase: 'Sabotage', schema: SKEPTIC_SCHEMA, ...MOPT })
   const weakTests = (s && Array.isArray(s.weakTests)) ? s.weakTests : []
   const ownWeak = weakTests.filter((w) => !w.preExisting)
   let survivors = (s && Array.isArray(s.survived)) ? s.survived : []
@@ -279,9 +287,9 @@ async function processTarget(t) {
   let lastRemaining = survivors.length
   while (survivors.length && round < MAX_ROUNDS) {
     round++
-    const str = await agent(strengthenPrompt(t, a.testFile, survivors, ownWeak), { label: `strengthen:${t.key} r${round}`, phase: 'Strengthen', model: MODEL, schema: STRENGTHEN_SCHEMA })
+    const str = await agent(strengthenPrompt(t, a.testFile, survivors, ownWeak), { label: `strengthen:${t.key} r${round}`, phase: 'Strengthen', schema: STRENGTHEN_SCHEMA, ...MOPT })
     if (!str || !str.passing) { rounds.push({ round, remaining: survivors.length, note: 'strengthen left tree red — stopped' }); break }
-    const rv = await agent(reverifyPrompt(t, a.testFile, survivors), { label: `reverify:${t.key} r${round}`, phase: 'Strengthen', model: MODEL, schema: REVERIFY_SCHEMA })
+    const rv = await agent(reverifyPrompt(t, a.testFile, survivors), { label: `reverify:${t.key} r${round}`, phase: 'Strengthen', schema: REVERIFY_SCHEMA, ...MOPT })
     const still = (rv && Array.isArray(rv.stillSurvived)) ? rv.stillSurvived : survivors
     rounds.push({ round, killed: survivors.length - still.length, remaining: still.length })
     survivors = still
@@ -303,7 +311,7 @@ const avg = scored.length ? scored.reduce((sum, r) => sum + (r.skeptic.mutationS
 const remainingMutants = results.reduce((n, r) => n + (r.remaining ? r.remaining.length : 0), 0)
 const preExistingWeak = results.flatMap((r) => (r.weakTests || []).filter((w) => w.preExisting))
 log(`Done: avg mutation score ${avg.toFixed(2)}, remaining mutants ${remainingMutants}, pre-existing weak tests ${preExistingWeak.length}`)
-return { model: MODEL, avgScore: avg, remainingMutants, results, preExistingWeak }
+return { model: MODEL || 'inherit', avgScore: avg, remainingMutants, results, preExistingWeak }
 ```
 
 ### Phase 2 — Synthesize, update ledger, offer (INLINE, on return)
@@ -344,7 +352,7 @@ Long runs die mid-way (usage cutoff, kill, crash). Two recovery layers:
 - **Cost profile (measured).** One ~50-line pure module, sonnet, hand-mutation, 1 round ≈ 4 agents /
   ~140k tokens / ~9.5 min — the skeptic runs N mutant×rerun cycles, so cost scales with (branches ×
   targets × rounds). At scale, prefer a real mutation tool (one batched run beats N LLM reruns), keep
-  the target list tight, and default sonnet over opus.
+  the target list tight, and lean sonnet; reserve opus/fable for gnarly logic.
 - The copy-restore checkpoint + serialize-per-file are what make main-tree parallelism safe — keep both.
 - **Slow test runners blow the skeptic budget.** Browser/jsdom (~2-3s/start), compiled (Rust/Go/JVM), and
   DB/integration suites make every mutant×rerun cycle expensive. Cap the skeptic's mutation count (see its
@@ -357,4 +365,3 @@ Long runs die mid-way (usage cutoff, kill, crash). Two recovery layers:
   than rewriting. Then ledger them with the method used.
 - Never write literal `Date.now()` / `Math.random()` / `new Date()` in the script text (even inside
   prompt strings) — the Workflow validator rejects it. Stamp the ledger date inline after the run.
-```

@@ -1,5 +1,4 @@
 {
-  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
   "name": "ps-claude-skills",
   "description": "Peter Stanchev's Claude Code skills: relentless plan-grilling, multi-agent OWASP & performance audits, mutation-verified test authoring, plus reference standards for ML evaluation and FastAPI structure.",
   "owner": {
@@ -10,7 +9,7 @@
     {
       "name": "ps-skills",
       "description": "Six skills: grill-me (interrogate a plan), owasp-audit & perf-audit (multi-agent audits), test-author-skeptic (mutation-verified tests), ml-eval (evaluation metrics), fastapi-skeleton (FastAPI structure).",
-      "version": "0.4.0",
+      "version": "0.5.0",
       "source": "./",
       "author": {
         "name": "Peter Stanchev",
